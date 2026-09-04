@@ -1,0 +1,26 @@
+
+__pycache__/
+*.py[oc]
+.DS_Store
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+.env
+.env.*
+.streamlit/secrets.toml
+
+media/**
+
+!media/**/
+
+!media/**/*.mp4
+
+media/**/partial_movie_files/
+
+# Locally installed algorithm teaching packages
+algorithm_packages/installed/
+algorithm_packages/drafts/
+algorithm_packages/rejected/
+algorithm_packages/.trash/
