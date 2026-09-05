@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -17,10 +15,10 @@ from web.algorithm_registry.latex import (
     normalize_latex,
     validate_latex,
 )
-from web.algorithm_registry.notebook_publisher import (
-    GitHubNotebookConfiguration,
-    NotebookPublishConflict,
-    publish_notebook_bytes,
+from web.algorithm_registry.notebook_links import (
+    builtin_colab_url,
+    manual_notebook_relative_path,
+    manual_publication_for,
 )
 from web.algorithm_registry.notebook_tools import normalize_and_validate_notebook
 from web.algorithm_registry.registry import load_experiment
@@ -154,63 +152,49 @@ class NotebookCompatibilityTests(unittest.TestCase):
             )
 
 
-class NotebookPublisherTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.configuration = GitHubNotebookConfiguration(
-            owner="owner", repository="repo", token="secret"
+class NotebookLinkTests(unittest.TestCase):
+    def _algorithm(self, root: Path, content: bytes = b"notebook"):
+        installed = root / "installed"
+        installed.mkdir()
+        (installed / "notebook.ipynb").write_bytes(content)
+        manifest = SimpleNamespace(
+            algorithm_id="double-q-learning",
+            version="1.0.1",
+            notebook={"file": "notebook.ipynb"},
         )
+        return SimpleNamespace(manifest=manifest, path=installed)
 
-    def test_new_notebook_is_published_to_versioned_colab_path(self) -> None:
-        not_found = urllib.error.HTTPError("url", 404, "missing", {}, None)
-        with mock.patch(
-            "web.algorithm_registry.notebook_publisher._request",
-            side_effect=[not_found, {"content": {"html_url": "https://github/file"}}],
-        ):
-            result = publish_notebook_bytes(
-                algorithm_id="double-q-learning",
-                version="1.0.1",
-                content=b"notebook",
-                configuration=self.configuration,
-            )
+    def test_builtin_colab_url_uses_current_repository_defaults(self) -> None:
         self.assertEqual(
-            result["path"], "notebooks/double-q-learning/1.0.1/notebook.ipynb"
+            builtin_colab_url("q_learning.ipynb"),
+            "https://colab.research.google.com/github/Changcheng-Huang/"
+            "rl_study/blob/main/notebook/q_learning.ipynb",
         )
-        self.assertIn("colab.research.google.com/github/owner/repo", result["colab_url"])
 
-    def test_different_content_at_same_version_is_rejected(self) -> None:
-        existing = {
-            "content": "ZGlmZmVyZW50",
-            "html_url": "https://github/file",
-        }
-        with mock.patch(
-            "web.algorithm_registry.notebook_publisher._request",
-            return_value=existing,
-        ):
-            with self.assertRaises(NotebookPublishConflict):
-                publish_notebook_bytes(
-                    algorithm_id="example",
-                    version="1.0.0",
-                    content=b"new",
-                    configuration=self.configuration,
-                )
+    def test_manual_copy_must_exist_and_match_installed_notebook(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            algorithm = self._algorithm(root)
+            missing = manual_publication_for(algorithm, repository_root=root)
+            self.assertEqual(missing.status, "missing")
+            self.assertIsNone(missing.colab_url)
 
-    def test_same_content_at_same_version_is_idempotent(self) -> None:
-        existing = {
-            "content": base64.b64encode(b"same").decode("ascii"),
-            "html_url": "https://github/file",
-        }
-        with mock.patch(
-            "web.algorithm_registry.notebook_publisher._request",
-            return_value=existing,
-        ) as request:
-            result = publish_notebook_bytes(
-                algorithm_id="example",
-                version="1.0.0",
-                content=b"same",
-                configuration=self.configuration,
+            destination = root / manual_notebook_relative_path(
+                "double-q-learning", "1.0.1"
             )
-        self.assertEqual(result["github_url"], "https://github/file")
-        request.assert_called_once()
+            destination.parent.mkdir(parents=True)
+            destination.write_bytes(b"different")
+            stale = manual_publication_for(algorithm, repository_root=root)
+            self.assertEqual(stale.status, "stale")
+            self.assertIsNone(stale.colab_url)
+
+            destination.write_bytes(b"notebook")
+            ready = manual_publication_for(algorithm, repository_root=root)
+            self.assertEqual(ready.status, "ready")
+            self.assertIn(
+                "notebook/imported/double-q-learning-1.0.1.ipynb",
+                ready.colab_url,
+            )
 
 
 class StaticExperimentSpecTests(unittest.TestCase):

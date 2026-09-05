@@ -2406,13 +2406,4 @@ def install_approved_draft(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     archived_draft = archive_root / f"{record.path.name}-{timestamp}"
     os.replace(record.path, archived_draft)
-    try:
-        from .notebook_publisher import publish_installed_notebook
-
-        publish_installed_notebook(installed)
-    except Exception:
-        # Notebook mirroring is intentionally non-transactional. The publisher
-        # records actionable failures when configured; local installation must
-        # remain usable even if GitHub is unavailable.
-        pass
     return installed, archive_path

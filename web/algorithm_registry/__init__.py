@@ -118,15 +118,13 @@ from .latex import (
     validate_latex,
 )
 from .notebook_tools import NOTEBOOK_DEPENDENCIES, normalize_and_validate_notebook
-from .notebook_publisher import (
+from .notebook_links import (
     GitHubNotebookConfiguration,
-    NotebookPublishConflict,
-    NotebookPublishError,
     builtin_colab_url,
+    colab_url,
     github_notebook_configuration,
-    publication_for,
-    publish_installed_notebook,
-    publish_notebook_bytes,
+    manual_notebook_relative_path,
+    manual_publication_for,
 )
 from .theory_content import (
     normalize_theory_title,
@@ -238,13 +236,11 @@ __all__ = [
     "NOTEBOOK_DEPENDENCIES",
     "normalize_and_validate_notebook",
     "GitHubNotebookConfiguration",
-    "NotebookPublishConflict",
-    "NotebookPublishError",
     "github_notebook_configuration",
-    "publish_notebook_bytes",
-    "publish_installed_notebook",
-    "publication_for",
     "builtin_colab_url",
+    "colab_url",
+    "manual_notebook_relative_path",
+    "manual_publication_for",
     "presentation_from_markdown",
     "normalize_theory_title",
     "validate_theory_presentation",

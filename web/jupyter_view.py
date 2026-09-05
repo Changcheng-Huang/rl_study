@@ -3,7 +3,7 @@ import os
 import nbformat
 from nbconvert import HTMLExporter
 from algorithm_registry.integration import imported_algorithms
-from algorithm_registry.notebook_publisher import builtin_colab_url, publication_for
+from algorithm_registry.notebook_links import builtin_colab_url, manual_publication_for
 
 def show_jupyter_module():
     # Header section
@@ -40,6 +40,7 @@ def show_jupyter_module():
             "algorithm_id": algorithm.manifest.algorithm_id,
             "version": algorithm.manifest.version,
             "validation": algorithm.manifest.notebook.get("validation"),
+            "algorithm": algorithm,
         }
     
     if not notebook_options:
@@ -74,13 +75,11 @@ def show_jupyter_module():
         # Generate Colab URL
         if selected["builtin"]:
             colab_url = builtin_colab_url(selected_file)
+            publication_message = None
         else:
-            publication = publication_for(selected["algorithm_id"], selected["version"])
-            colab_url = (
-                publication.get("colab_url")
-                if publication and publication.get("status") == "published"
-                else None
-            )
+            publication = manual_publication_for(selected["algorithm"])
+            colab_url = publication.colab_url
+            publication_message = publication.message
 
         if colab_url:
             # Optimization: Use Flexbox to force vertical alignment with Streamlit button height (38px)
@@ -97,7 +96,8 @@ def show_jupyter_module():
                 unsafe_allow_html=True
             )
         else:
-            st.caption("Colab link unavailable. Download the notebook or publish it from Package Manager.")
+            st.caption(publication_message)
+            st.code(publication.relative_path)
 
     # Status info
     st.info(f"Currently viewing: **{selected_file}**")

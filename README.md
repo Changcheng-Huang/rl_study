@@ -104,23 +104,23 @@ Planning Agent 默认继承 `ALGORITHM_AGENT_*` 连接，也可以用
 `generation.animation_guidance` 中，API key 不会写入文件。
 内部 JSON 由表单自动映射，普通用户不直接编辑。
 
-### GitHub / Colab Notebook 发布
+### GitHub / Colab Notebook 打开方式
 
-内置与导入 Notebook 共用可配置的公开 GitHub 仓库。细粒度 Token 只需要
-目标仓库的 Contents 写权限，并且只从环境变量读取：
+平台不会通过 API 向 GitHub 上传 Notebook，也不需要 GitHub Token。内置
+Notebook 直接使用仓库中已有的 `notebook/` 文件生成 Colab 链接。仓库地址
+默认是 `Changcheng-Huang/rl_study`，需要用于 fork 时可覆盖：
 
 ```bash
-export RLAE_NOTEBOOK_GITHUB_OWNER="your-github-owner"
-export RLAE_NOTEBOOK_GITHUB_REPO="your-public-notebook-repository"
+export RLAE_NOTEBOOK_GITHUB_OWNER="Changcheng-Huang"
+export RLAE_NOTEBOOK_GITHUB_REPO="rl_study"
 export RLAE_NOTEBOOK_GITHUB_BRANCH="main"
-export RLAE_NOTEBOOK_GITHUB_ROOT="notebooks"
-export RLAE_NOTEBOOK_GITHUB_TOKEN="fine-grained-token"
 ```
 
-安装完成后，导入 Notebook 会发布到
-`notebooks/{algorithm-id}/{version}/notebook.ipynb`。相同内容可安全重试；
-同版本的不同内容不会被覆盖。GitHub 故障不会回滚本地安装，可在 Package
-Manager 中重试。Token 不写入算法包或发布状态文件。
+导入 Notebook 安装后仍保存在本地并可预览或下载。需要公开到 Colab 时，
+维护者将下载的同内容文件保存为
+`notebook/imported/{algorithm-id}-{version}.ipynb`，再正常执行 Git commit 和
+push。平台检测到本地仓库副本与已安装版本完全一致后才显示 Colab 按钮；
+如果尚未推送，链接会暂时返回 GitHub/Colab 404。
 
 Agent 生成的 Notebook 会进行 nbformat、语法、依赖白名单和危险操作静态检查，
 但平台不会执行单元格，因此界面会明确显示“static checks passed · not
