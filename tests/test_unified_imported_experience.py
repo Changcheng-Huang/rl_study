@@ -12,7 +12,9 @@ import nbformat
 
 from web.algorithm_registry.latex import (
     double_q_learning_core_latex,
+    format_latex_entries,
     normalize_latex,
+    parse_latex_entries,
     validate_latex,
 )
 from web.algorithm_registry.notebook_links import (
@@ -30,6 +32,12 @@ from web.algorithm_registry.theory_content import (
 
 
 class LatexTests(unittest.TestCase):
+    def test_multiline_formula_editor_round_trip_preserves_aligned_block(self) -> None:
+        aligned = double_q_learning_core_latex()
+        second = r"V(s) = \max_a Q(s,a)"
+        editor_value = format_latex_entries([aligned, second])
+        self.assertEqual(parse_latex_entries(editor_value), (aligned, second))
+
     def test_legacy_formula_is_normalized_for_streamlit_latex(self) -> None:
         value = "$a^{*} = argmax_{a} Q_A(s',a); target_A = r + gamma * Q_B(s',a^*)$"
         normalized = validate_latex(value)

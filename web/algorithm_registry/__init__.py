@@ -114,7 +114,9 @@ from .registry import list_installed, load_experiment
 from .latex import (
     LatexValidationError,
     double_q_learning_core_latex,
+    format_latex_entries,
     normalize_latex,
+    parse_latex_entries,
     validate_latex,
 )
 from .notebook_tools import NOTEBOOK_DEPENDENCIES, normalize_and_validate_notebook
@@ -231,6 +233,8 @@ __all__ = [
     "EXPERIMENT_DESIGN_PRESETS",
     "LatexValidationError",
     "normalize_latex",
+    "format_latex_entries",
+    "parse_latex_entries",
     "validate_latex",
     "double_q_learning_core_latex",
     "NOTEBOOK_DEPENDENCIES",

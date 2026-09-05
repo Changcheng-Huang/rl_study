@@ -55,6 +55,9 @@ from algorithm_registry import (
     trash_rejected_draft,
     uninstall_package,
     validate_package,
+    validate_latex,
+    format_latex_entries,
+    parse_latex_entries,
 )
 
 
@@ -116,6 +119,32 @@ def _render_report(report) -> None:
 
 def _lines(value: str) -> tuple[str, ...]:
     return tuple(line.strip() for line in value.splitlines() if line.strip())
+
+
+def _render_formula_preview(
+    value: str,
+    *,
+    title: str = "Formula preview",
+    expanded: bool = False,
+) -> None:
+    with st.expander(title, expanded=expanded):
+        st.caption(
+            "Rendered with the same LaTeX component used on the learner-facing page. "
+            "Edit the source above, then refresh this preview before saving."
+        )
+        formulas = parse_latex_entries(value)
+        if not formulas:
+            st.info("Enter a formula to preview it.")
+            return
+        for index, formula in enumerate(formulas, start=1):
+            try:
+                normalized = validate_latex(formula)
+            except ValueError as exc:
+                st.error(f"Formula {index} cannot be rendered safely: {exc}")
+            else:
+                if len(formulas) > 1:
+                    st.caption(f"Formula {index}")
+                st.latex(normalized)
 
 
 def _editor_records(value) -> list[dict]:
@@ -914,12 +943,22 @@ def _render_create_draft(provider: str) -> None:
             disabled=request_in_progress,
         )
         equations = st.text_area(
-            "Core equations (one per line)",
-            value="\n".join(
+            "Core equations (separate formulas with a blank line)",
+            value=format_latex_entries(
                 agent_values.get("core_equations", default_equations)
             ),
             key=f"{form_key_prefix}_equations",
             disabled=request_in_progress,
+            height=220,
+        )
+        refresh_formula_preview = st.form_submit_button(
+            "Refresh formula preview",
+            disabled=request_in_progress,
+        )
+        _render_formula_preview(
+            equations,
+            title="Core equations · final page preview",
+            expanded=refresh_formula_preview,
         )
         pseudocode = st.text_area(
             "Pseudocode (one step per line)",
@@ -966,11 +1005,17 @@ def _render_create_draft(provider: str) -> None:
                 disabled=request_in_progress,
                 help="Concept text displayed below the installed video.",
             )
-            animation_formula = st.text_input(
+            animation_formula = st.text_area(
                 "Animation formula",
                 key=f"{form_key_prefix}_animation_formula",
                 disabled=request_in_progress,
                 help="Main formula displayed or explained in the video.",
+                height=180,
+            )
+            _render_formula_preview(
+                animation_formula,
+                title="Animation formula · final page preview",
+                expanded=refresh_formula_preview,
             )
             animation_symbols_editor = _render_symbol_editor(
                 "Animation symbols",
@@ -1204,7 +1249,7 @@ def _render_create_draft(provider: str) -> None:
                 states=_lines(states),
                 actions=_lines(actions),
                 hyperparameters=hyperparameters,
-                core_equations=_lines(equations),
+                core_equations=parse_latex_entries(equations),
                 pseudocode=_lines(pseudocode),
                 supported_environments=_lines(environments),
                 source_name=source_name,
@@ -1428,8 +1473,15 @@ def _render_spec_editor(draft, provider: str) -> None:
             key=f"review_hyperparameters_{draft.key}",
         )
         equations = st.text_area(
-            "Core equations (one per line)",
-            value="\n".join(current_algorithm.get("core_equations", [])),
+            "Core equations (separate formulas with a blank line)",
+            value=format_latex_entries(current_algorithm.get("core_equations", [])),
+            height=220,
+        )
+        refresh_formula_preview = st.form_submit_button("Refresh formula preview")
+        _render_formula_preview(
+            equations,
+            title="Core equations · final page preview",
+            expanded=refresh_formula_preview,
         )
         pseudocode = st.text_area(
             "Pseudocode (one step per line)",
@@ -1474,7 +1526,7 @@ def _render_spec_editor(draft, provider: str) -> None:
                     "hyperparameters": _hyperparameters_from_editor(
                         hyperparameters_editor
                     ),
-                    "core_equations": list(_lines(equations)),
+                    "core_equations": list(parse_latex_entries(equations)),
                     "pseudocode": list(_lines(pseudocode)),
                     "supported_environments": list(_lines(environments)),
                 }
@@ -1786,11 +1838,16 @@ def _render_module_review(
                 key=f"animation_concept_{draft.key}",
                 disabled=locked,
             )
-            animation_formula = st.text_input(
+            animation_formula = st.text_area(
                 "Animation formula",
                 value=animation.get("formula", ""),
                 key=f"animation_formula_{draft.key}",
                 disabled=locked,
+                height=180,
+            )
+            _render_formula_preview(
+                animation_formula,
+                title="Formula only · final page preview",
             )
             animation_symbols_editor = _render_symbol_editor(
                 "Animation symbols",
@@ -2269,10 +2326,15 @@ def _render_add_animation(draft, provider: str) -> None:
             ),
             key=f"add_animation_concept_{draft.key}",
         )
-        formula = st.text_input(
+        formula = st.text_area(
             "Animation formula",
             value=metadata.get("formula", ""),
             key=f"add_animation_formula_{draft.key}",
+            height=180,
+        )
+        _render_formula_preview(
+            formula,
+            title="Formula only · final page preview",
         )
         symbols_editor = _render_symbol_editor(
             "Animation symbols",
@@ -2710,9 +2772,13 @@ def _render_animation_guidance(draft, provider: str) -> None:
                             key=f"guidance_scene_visuals_{draft.key}_{index}",
                         )
                         formulas = st.text_area(
-                            "Formula checks (one per line)",
-                            value="\n".join(scene["formulas"]),
+                            "Formula checks (separate formulas with a blank line)",
+                            value=format_latex_entries(scene["formulas"]),
                             key=f"guidance_scene_formulas_{draft.key}_{index}",
+                        )
+                        _render_formula_preview(
+                            formulas,
+                            title="Scene formulas · final render preview",
                         )
                         transition = st.text_area(
                             "Transition to the next scene",
@@ -2728,7 +2794,7 @@ def _render_animation_guidance(draft, provider: str) -> None:
                                 "narration": narration,
                                 "on_screen_text": list(_lines(on_screen_text)),
                                 "visuals": list(_lines(visuals)),
-                                "formulas": list(_lines(formulas)),
+                                "formulas": list(parse_latex_entries(formulas)),
                                 "transition_to_next": transition,
                             }
                         )
@@ -2751,7 +2817,19 @@ def _render_animation_guidance(draft, provider: str) -> None:
                 concept_markdown = st.text_area(
                     "Concept explanation", value=metadata["concept_markdown"]
                 )
-                formula = st.text_input("Main formula", value=metadata["formula"])
+                formula = st.text_area(
+                    "Main formula",
+                    value=metadata["formula"],
+                    height=180,
+                )
+                refresh_guidance_preview = st.form_submit_button(
+                    "Refresh main formula preview"
+                )
+                _render_formula_preview(
+                    formula,
+                    title="Main formula · final page preview",
+                    expanded=refresh_guidance_preview,
+                )
                 symbols_editor = _render_symbol_editor(
                     "Formula symbols",
                     metadata["symbols"],

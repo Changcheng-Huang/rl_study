@@ -14,6 +14,22 @@ _PLAIN_TOKENS = (
 )
 
 
+def format_latex_entries(values) -> str:
+    """Format formulas for a textarea without flattening multiline environments."""
+
+    return "\n\n".join(str(value).strip() for value in values if str(value).strip())
+
+
+def parse_latex_entries(value: str) -> tuple[str, ...]:
+    """Parse formulas separated by blank lines, preserving internal line breaks."""
+
+    return tuple(
+        block.strip()
+        for block in re.split(r"\n\s*\n+", value.strip())
+        if block.strip()
+    )
+
+
 def normalize_latex(value: str, *, multiline: bool = True) -> str:
     """Normalize common programming-style equations into st.latex-ready text.
 
