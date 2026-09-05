@@ -3,12 +3,19 @@ import os
 import nbformat
 from nbconvert import HTMLExporter
 from algorithm_registry.integration import imported_algorithms
-from algorithm_registry.notebook_links import builtin_colab_url, manual_publication_for
+from algorithm_registry.notebook_links import (
+    NOTEBOOK_PUBLICATION_NOTICE,
+    builtin_colab_url,
+    manual_publication_for,
+)
+
 
 def show_jupyter_module():
     # Header section
     st.subheader("Jupyter Notebooks")
     st.caption("View implementation details or run the code directly in the cloud.")
+    with st.expander("GitHub / Colab publishing · 公开说明", expanded=False):
+        st.markdown(NOTEBOOK_PUBLICATION_NOTICE)
 
     # Locate the notebook directory
     # Assumes structure: Animations-xxx/web/jupyter_view.py and Animations-xxx/notebook/

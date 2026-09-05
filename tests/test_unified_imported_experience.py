@@ -16,6 +16,7 @@ from web.algorithm_registry.latex import (
     validate_latex,
 )
 from web.algorithm_registry.notebook_links import (
+    NOTEBOOK_PUBLICATION_NOTICE,
     builtin_colab_url,
     manual_notebook_relative_path,
     manual_publication_for,
@@ -153,6 +154,11 @@ class NotebookCompatibilityTests(unittest.TestCase):
 
 
 class NotebookLinkTests(unittest.TestCase):
+    def test_notebook_module_explains_manual_publication(self) -> None:
+        self.assertIn("does not upload", NOTEBOOK_PUBLICATION_NOTICE)
+        self.assertIn("notebook/imported/", NOTEBOOK_PUBLICATION_NOTICE)
+        self.assertIn("commit and push", NOTEBOOK_PUBLICATION_NOTICE)
+
     def _algorithm(self, root: Path, content: bytes = b"notebook"):
         installed = root / "installed"
         installed.mkdir()

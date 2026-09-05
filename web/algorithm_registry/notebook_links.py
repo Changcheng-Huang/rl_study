@@ -7,6 +7,19 @@ from pathlib import Path
 from typing import Mapping
 
 
+NOTEBOOK_PUBLICATION_NOTICE = """
+- **Built-in notebooks** are read from this repository's `notebook/` directory
+  and can open directly in Colab.
+- **Imported or Agent-generated notebooks** stay local after review and
+  installation. The platform does not upload them to GitHub automatically.
+- To publish an imported notebook, download it, save the identical file under
+  `notebook/imported/`, then commit and push it with Git. A Colab button appears
+  only when the repository copy matches the installed notebook.
+- Colab fetches the `.ipynb` file from GitHub. The repository copy must therefore
+  be available on the configured public repository and branch.
+""".strip()
+
+
 @dataclass(frozen=True)
 class GitHubNotebookConfiguration:
     owner: str = "Changcheng-Huang"
