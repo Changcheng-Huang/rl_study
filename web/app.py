@@ -10,6 +10,12 @@ for import_path in (current_dir, root_dir):
     if import_path not in sys.path:
         sys.path.insert(0, import_path)
 
+from environment import load_project_environment
+
+# Local launches can use the ignored project .env directly. Values injected by
+# systemd, Docker, or the parent shell keep precedence because override=False.
+load_project_environment(os.path.join(root_dir, ".env"))
+
 from home import show_home
 from animations import show_animation_library
 from experiments import run_experiments_module

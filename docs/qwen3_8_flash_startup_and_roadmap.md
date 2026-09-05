@@ -122,9 +122,9 @@ source .venv/bin/activate
 streamlit run web/app.py
 ```
 
-仓库虽然忽略 `.env` 文件，但当前代码没有调用 `load_dotenv()`，因此仅创建
-`.env` 不会自动生效。如果把变量保存在本地 `.env` 中，需要先通过可信方式将其
-导入 shell；不要把 API Key 写入 README、源码、草稿或提交记录。
+仓库忽略 `.env` 文件，应用启动时会自动加载项目根目录的 `.env`。systemd、
+容器或父进程已经注入的同名环境变量优先，不会被文件覆盖。不要把 API Key
+写入 README、源码、草稿或提交记录。
 
 ## 5. 首次运行验证
 

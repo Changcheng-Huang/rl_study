@@ -7,6 +7,9 @@
 
 项目使用 Python 3.10 虚拟环境：
 
+启动时会自动读取项目根目录中被 Git 忽略的 `.env`。服务器通过 systemd、
+容器或父进程注入的同名环境变量优先，不会被 `.env` 覆盖。
+
 ```bash
 source .venv/bin/activate
 streamlit run web/app.py
