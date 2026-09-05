@@ -4,7 +4,8 @@ import hashlib
 import io
 import json
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Mapping
 
@@ -17,6 +18,12 @@ from .agent_spec import (
     AgentNotConfiguredError,
     AgentResponseError,
     _usage_values,
+)
+from .notebook_tools import normalize_and_validate_notebook
+from .theory_content import (
+    encode_theory_presentation,
+    presentation_from_markdown,
+    validate_theory_presentation,
 )
 
 
@@ -31,10 +38,25 @@ MODULE_MAX_TOKENS = {
 }
 
 
+class TheoryCheckpointOutput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=2, max_length=6)
+    answer: int = Field(ge=0)
+    explanation: str = Field(min_length=1)
+
+
 class TheoryModuleOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     markdown: str = Field(min_length=200)
+    key_ideas: list[str] = Field(min_length=2, max_length=8)
+    when_to_use: list[str] = Field(min_length=1, max_length=8)
+    concept_markdown: str = Field(min_length=100)
+    math_markdown: str = Field(min_length=50)
+    pseudocode_markdown: str = Field(min_length=50)
+    checkpoint: list[TheoryCheckpointOutput] = Field(min_length=3, max_length=5)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -48,7 +70,7 @@ class NotebookCellOutput(BaseModel):
 class NotebookModuleOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    cells: list[NotebookCellOutput] = Field(min_length=3, max_length=10)
+    cells: list[NotebookCellOutput] = Field(min_length=8, max_length=24)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -83,6 +105,8 @@ class GeneratedModule:
     module: str
     payload: bytes
     metadata: Mapping[str, Any]
+    additional_files: Mapping[str, bytes] = field(default_factory=dict)
+    declaration_updates: Mapping[str, Any] = field(default_factory=dict)
 
 
 BASE_SYSTEM_PROMPT = """
@@ -107,17 +131,23 @@ unchanged where translation would reduce correctness.
 MODULE_INSTRUCTIONS = {
     "theory": """
 Create a self-contained Markdown lesson for an engineer who may be new to
-machine learning. Explain intuition, assumptions, inputs and outputs, equations,
-pseudocode, implementation cautions, and a small worked example. Do not wrap the
-Markdown in a code fence. Keep the lesson between 900 and 1,400 English words.
+machine learning. The first H1 must exactly equal the AlgorithmSpec name.
+Also populate key_ideas, when_to_use, concept_markdown, math_markdown,
+pseudocode_markdown, and 3-5 checkpoint questions. Each checkpoint object uses
+question, options, answer (zero-based index), and explanation. Explain intuition,
+assumptions, inputs and outputs, equations, implementation cautions, and a small
+worked example. Do not wrap Markdown in a code fence. Keep the full lesson
+between 900 and 1,400 English words.
 """.strip(),
     "notebook": """
-Create a teaching notebook as an ordered list of Markdown and Python code cells.
+Create a teaching notebook as 8-24 ordered Markdown and Python code cells.
 Use only cell_type "markdown" or "code". It must explain the AlgorithmSpec,
-include runnable setup and a small deterministic standard-library demonstration.
-Return no more than 10 cells.
-Avoid third-party imports, network access, shell commands, package installation,
-secrets, and file writes.
+using sections Overview, Algorithm, Setup, Implementation, Training,
+Visualization, Exercises, and Summary. Include runnable setup and a small
+deterministic demonstration. Third-party imports are limited to numpy, pandas,
+matplotlib, seaborn, gymnasium, and scipy; the platform adds their installation
+cell. Avoid network access, shell commands, package installation, secrets, and
+file writes.
 Do not include a deliberate exception or placeholder implementation.
 """.strip(),
     "experiment": """
@@ -310,7 +340,7 @@ def _strip_code_fence(value: str) -> str:
 def _notebook_payload(
     output: NotebookModuleOutput,
     algorithm_spec: Mapping[str, Any],
-) -> bytes:
+) -> tuple[bytes, list[dict[str, str]]]:
     notebook = nbformat.v4.new_notebook()
     notebook.metadata["algorithm_id"] = algorithm_spec["id"]
     notebook.metadata["algorithm_version"] = algorithm_spec["version"]
@@ -329,10 +359,14 @@ def _notebook_payload(
     if not any(cell.cell_type == "code" for cell in cells):
         raise AgentResponseError("Notebook Agent must return at least one code cell")
     notebook.cells = cells
-    nbformat.validate(notebook)
     buffer = io.StringIO()
     nbformat.write(notebook, buffer)
-    return buffer.getvalue().encode("utf-8")
+    return normalize_and_validate_notebook(
+        buffer.getvalue().encode("utf-8"),
+        str(algorithm_spec["id"]),
+        str(algorithm_spec["version"]),
+        require_template=True,
+    )
 
 
 def _parsed_output(response: Any, schema: type[BaseModel]) -> tuple[BaseModel, Any]:
@@ -465,10 +499,37 @@ def generate_module_content(
     if previous_truncated:
         warnings.append("Previous module content was truncated before generation.")
 
+    additional_files: dict[str, bytes] = {}
+    declaration_updates: dict[str, Any] = {}
     if isinstance(output, TheoryModuleOutput):
-        payload = _strip_code_fence(output.markdown).encode("utf-8")
+        markdown = _strip_code_fence(output.markdown)
+        title_match = re.search(r"(?m)^#\s+(.+?)\s*$", markdown)
+        expected_title = str(algorithm_spec["name"]).strip()
+        if not title_match or title_match.group(1).strip() != expected_title:
+            raise AgentResponseError(
+                "Theory Agent H1 must exactly match the AlgorithmSpec name"
+            )
+        payload = markdown.encode("utf-8")
+        fallback = presentation_from_markdown(markdown, str(algorithm_spec["name"]))
+        presentation = {
+            **fallback,
+            "title": str(algorithm_spec["name"]),
+            "key_ideas": output.key_ideas or fallback["key_ideas"],
+            "when_to_use": output.when_to_use or fallback["when_to_use"],
+            "concept_markdown": output.concept_markdown or fallback["concept_markdown"],
+            "math_markdown": output.math_markdown or fallback["math_markdown"],
+            "pseudocode_markdown": output.pseudocode_markdown or fallback["pseudocode_markdown"],
+            "checkpoint": [item.model_dump() for item in output.checkpoint],
+        }
+        presentation = validate_theory_presentation(
+            presentation, algorithm_name=str(algorithm_spec["name"])
+        )
+        additional_files["theory.presentation.json"] = encode_theory_presentation(presentation)
+        declaration_updates["presentation_file"] = "theory.presentation.json"
     elif isinstance(output, NotebookModuleOutput):
-        payload = _notebook_payload(output, algorithm_spec)
+        payload, requirements = _notebook_payload(output, algorithm_spec)
+        declaration_updates["requirements"] = requirements
+        declaration_updates["validation"] = "static-only-not-executed"
     elif isinstance(output, ExperimentModuleOutput):
         payload = _strip_code_fence(output.python_source).encode("utf-8")
     else:
@@ -491,4 +552,10 @@ def generate_module_content(
         "warnings": list(dict.fromkeys(warnings)),
         "usage": _usage_values(raw_message),
     }
-    return GeneratedModule(module=module, payload=payload, metadata=metadata)
+    return GeneratedModule(
+        module=module,
+        payload=payload,
+        metadata=metadata,
+        additional_files=additional_files,
+        declaration_updates=declaration_updates,
+    )

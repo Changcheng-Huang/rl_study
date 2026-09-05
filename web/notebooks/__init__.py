@@ -3,6 +3,7 @@ import streamlit as st
 from .common import page_header
 from . import dp, td, dqn
 from algorithm_registry.integration import imported_algorithms
+from .theory_renderer import render_imported_theory
 
 
 CHAPTERS = {
@@ -33,7 +34,4 @@ def show_notebook_module():
         CHAPTERS[topic].render()
     else:
         algorithm = imported[topic]
-        st.subheader(algorithm.manifest.name)
-        st.caption(algorithm.manifest.summary)
-        theory_path = algorithm.path / algorithm.manifest.theory_file
-        st.markdown(theory_path.read_text(encoding="utf-8"))
+        render_imported_theory(algorithm)

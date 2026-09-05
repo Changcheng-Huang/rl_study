@@ -32,6 +32,13 @@ from .models import (
     ValidationReport,
 )
 from .experiment_design import validate_experiment_design
+from .latex import validate_latex
+from .theory_content import (
+    encode_theory_presentation,
+    normalize_theory_title,
+    presentation_from_markdown,
+)
+from .notebook_tools import normalize_and_validate_notebook
 from .package import (
     ALGORITHM_ID_PATTERN,
     CORE_MODULES,
@@ -42,6 +49,7 @@ from .package import (
     project_root,
     validate_source_directory,
 )
+from .runtime import load_isolated_spec
 
 
 GENERATOR_VERSION = "template-v2.0"
@@ -195,8 +203,10 @@ def _validate_animation_metadata(
 ) -> None:
     if not isinstance(concept_markdown, str):
         raise DraftValidationError("animation concept_markdown must be a string")
-    if not isinstance(formula, str):
-        raise DraftValidationError("animation formula must be a string")
+    try:
+        validate_latex(formula, allow_empty=True)
+    except ValueError as exc:
+        raise DraftValidationError(f"animation formula is invalid: {exc}") from exc
     for index, item in enumerate(symbols):
         if not isinstance(item, Mapping) or set(item) != {"symbol", "meaning"}:
             raise DraftValidationError(
@@ -453,9 +463,10 @@ def _manifest_for(
         "states": _clean_string_list("states", data.states),
         "actions": _clean_string_list("actions", data.actions),
         "hyperparameters": dict(data.hyperparameters),
-        "core_equations": _clean_string_list(
-            "core_equations", data.core_equations
-        ),
+        "core_equations": [
+            validate_latex(value)
+            for value in _clean_string_list("core_equations", data.core_equations)
+        ],
         "pseudocode": _clean_string_list("pseudocode", data.pseudocode),
         "supported_environments": _clean_string_list(
             "supported_environments", data.supported_environments
@@ -1449,7 +1460,15 @@ def save_algorithm_spec(
     manifest["name"] = name.strip()
     manifest["category"] = category.strip()
     manifest["summary"] = summary.strip()
-    manifest["algorithm"] = dict(algorithm)
+    normalized_algorithm = dict(algorithm)
+    try:
+        normalized_algorithm["core_equations"] = [
+            validate_latex(str(value))
+            for value in algorithm.get("core_equations", [])
+        ]
+    except ValueError as exc:
+        raise DraftValidationError(f"core equation is invalid: {exc}") from exc
+    manifest["algorithm"] = normalized_algorithm
     _validate_candidate(record.path, manifest)
     current_hash = _algorithm_spec_sha256(manifest)
     if current_hash == previous_hash:
@@ -1579,7 +1598,31 @@ def save_theory(
             "approved theory is locked; request changes before editing it"
         )
     theory_file = manifest["modules"]["theory"]["file"]
-    _write_text(record.path / theory_file, content)
+    content = normalize_theory_title(content, manifest["name"])
+    preserved_presentation = None
+    existing_presentation = manifest["modules"]["theory"].get("presentation_file")
+    if isinstance(existing_presentation, str):
+        try:
+            preserved_presentation = json.loads(
+                (record.path / existing_presentation).read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError):
+            preserved_presentation = None
+    presentation = presentation_from_markdown(
+        content,
+        manifest["name"],
+        preserve=preserved_presentation,
+    )
+    presentation["title"] = manifest["name"]
+    presentation_file = "theory.presentation.json"
+    manifest["modules"]["theory"]["presentation_file"] = presentation_file
+    replacements = {
+        theory_file: content.encode("utf-8"),
+        presentation_file: encode_theory_presentation(presentation),
+    }
+    _validate_candidate(record.path, manifest, replacements)
+    _atomic_write(record.path / theory_file, replacements[theory_file])
+    _atomic_write(record.path / presentation_file, replacements[presentation_file])
     report = validate_source_directory(record.path)
     _set_status(
         manifest,
@@ -1629,6 +1672,19 @@ def replace_module_file(
     relative_path = (
         declaration["file"] if module == "notebook" else declaration["module"]
     )
+    if module == "notebook":
+        try:
+            payload, requirements = normalize_and_validate_notebook(
+                payload,
+                manifest["id"],
+                manifest["version"],
+            )
+        except ValueError as exc:
+            raise DraftValidationError(str(exc)) from exc
+        declaration["requirements"] = requirements
+        declaration["validation"] = "static-only-not-executed"
+    else:
+        declaration.pop("spec_file", None)
     _validate_candidate(record.path, manifest, {relative_path: payload})
     _atomic_write(record.path / relative_path, payload)
     _set_status(
@@ -1701,7 +1757,7 @@ def save_animation_module(
     manifest["modules"]["animation"] = {
         "file": "animation.mp4",
         "concept_markdown": concept_markdown.strip(),
-        "formula": formula.strip(),
+        "formula": validate_latex(formula, allow_empty=True),
         "symbols": [dict(item) for item in cleaned_symbols],
         "highlights": list(cleaned_highlights),
         "viewing_flow": list(cleaned_viewing_flow),
@@ -1938,12 +1994,18 @@ def generate_module_with_agent(
         chat_model=chat_model,
         environ=environ,
     )
+    if module == "experiment":
+        manifest["modules"][module].pop("spec_file", None)
+    manifest["modules"][module].update(dict(result.declaration_updates))
+    replacements = {relative_path: result.payload, **dict(result.additional_files)}
     _validate_candidate(
         record.path,
         manifest,
-        {relative_path: result.payload},
+        replacements,
     )
     _atomic_write(current_path, result.payload)
+    for additional_path, additional_payload in result.additional_files.items():
+        _atomic_write(record.path / additional_path, additional_payload)
     generation_history = manifest["generation"].setdefault(
         "module_generations", {}
     )
@@ -2294,6 +2356,27 @@ def install_approved_draft(
                 action="installed",
             )
         _write_json(final_source / "manifest.json", final_manifest)
+        initial_report = validate_source_directory(final_source)
+        if not initial_report.valid or initial_report.manifest is None:
+            raise DraftValidationError(
+                "; ".join(issue.message for issue in initial_report.errors)
+            )
+        if initial_report.manifest.experiment is not None:
+            installed_candidate = InstalledAlgorithm(
+                manifest=initial_report.manifest,
+                path=final_source,
+                dependencies=initial_report.dependencies,
+            )
+            try:
+                experiment_spec = load_isolated_spec(installed_candidate)
+            except Exception as exc:
+                raise DraftValidationError(
+                    f"experiment specification snapshot failed: {exc}"
+                ) from exc
+            spec_file = "experiment_spec.json"
+            _write_json(final_source / spec_file, experiment_spec)
+            final_manifest["modules"]["experiment"]["spec_file"] = spec_file
+            _write_json(final_source / "manifest.json", final_manifest)
         final_report = validate_source_directory(final_source)
         if not final_report.valid:
             raise DraftValidationError(
@@ -2323,4 +2406,13 @@ def install_approved_draft(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     archived_draft = archive_root / f"{record.path.name}-{timestamp}"
     os.replace(record.path, archived_draft)
+    try:
+        from .notebook_publisher import publish_installed_notebook
+
+        publish_installed_notebook(installed)
+    except Exception:
+        # Notebook mirroring is intentionally non-transactional. The publisher
+        # records actionable failures when configured; local installation must
+        # remain usable even if GitHub is unavailable.
+        pass
     return installed, archive_path

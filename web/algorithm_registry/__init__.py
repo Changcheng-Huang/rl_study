@@ -98,6 +98,7 @@ from .drafts import (
 from .module_agent import (
     GeneratedModule,
     ModuleAgentConfiguration,
+    TheoryCheckpointOutput,
     all_module_agents_configured,
     generate_module_content,
     get_module_agent_configuration,
@@ -110,6 +111,28 @@ from .package import (
     validate_source_directory,
 )
 from .registry import list_installed, load_experiment
+from .latex import (
+    LatexValidationError,
+    double_q_learning_core_latex,
+    normalize_latex,
+    validate_latex,
+)
+from .notebook_tools import NOTEBOOK_DEPENDENCIES, normalize_and_validate_notebook
+from .notebook_publisher import (
+    GitHubNotebookConfiguration,
+    NotebookPublishConflict,
+    NotebookPublishError,
+    builtin_colab_url,
+    github_notebook_configuration,
+    publication_for,
+    publish_installed_notebook,
+    publish_notebook_bytes,
+)
+from .theory_content import (
+    normalize_theory_title,
+    presentation_from_markdown,
+    validate_theory_presentation,
+)
 
 __all__ = [
     "AgentConfiguration",
@@ -142,6 +165,7 @@ __all__ = [
     "InstalledAlgorithm",
     "LoadedExperiment",
     "ModuleAgentConfiguration",
+    "TheoryCheckpointOutput",
     "PackageIssue",
     "PackageValidationError",
     "PlannedAnimationGuidance",
@@ -207,4 +231,21 @@ __all__ = [
     "validate_animation_options",
     "validate_animation_guidance",
     "EXPERIMENT_DESIGN_PRESETS",
+    "LatexValidationError",
+    "normalize_latex",
+    "validate_latex",
+    "double_q_learning_core_latex",
+    "NOTEBOOK_DEPENDENCIES",
+    "normalize_and_validate_notebook",
+    "GitHubNotebookConfiguration",
+    "NotebookPublishConflict",
+    "NotebookPublishError",
+    "github_notebook_configuration",
+    "publish_notebook_bytes",
+    "publish_installed_notebook",
+    "publication_for",
+    "builtin_colab_url",
+    "presentation_from_markdown",
+    "normalize_theory_title",
+    "validate_theory_presentation",
 ]

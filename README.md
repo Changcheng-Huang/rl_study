@@ -104,6 +104,28 @@ Planning Agent 默认继承 `ALGORITHM_AGENT_*` 连接，也可以用
 `generation.animation_guidance` 中，API key 不会写入文件。
 内部 JSON 由表单自动映射，普通用户不直接编辑。
 
+### GitHub / Colab Notebook 发布
+
+内置与导入 Notebook 共用可配置的公开 GitHub 仓库。细粒度 Token 只需要
+目标仓库的 Contents 写权限，并且只从环境变量读取：
+
+```bash
+export RLAE_NOTEBOOK_GITHUB_OWNER="your-github-owner"
+export RLAE_NOTEBOOK_GITHUB_REPO="your-public-notebook-repository"
+export RLAE_NOTEBOOK_GITHUB_BRANCH="main"
+export RLAE_NOTEBOOK_GITHUB_ROOT="notebooks"
+export RLAE_NOTEBOOK_GITHUB_TOKEN="fine-grained-token"
+```
+
+安装完成后，导入 Notebook 会发布到
+`notebooks/{algorithm-id}/{version}/notebook.ipynb`。相同内容可安全重试；
+同版本的不同内容不会被覆盖。GitHub 故障不会回滚本地安装，可在 Package
+Manager 中重试。Token 不写入算法包或发布状态文件。
+
+Agent 生成的 Notebook 会进行 nbformat、语法、依赖白名单和危险操作静态检查，
+但平台不会执行单元格，因此界面会明确显示“static checks passed · not
+executed”。
+
 导入实验可通过声明式 `presentation` 和 `views.policy_grid` 展示 Task、初始
 网格和训练后的 Learned Policy；数据在父进程重新校验后由平台统一绘制，
 算法包仍不能执行自定义 Streamlit 页面。已安装的 Schema v2 算法可以创建

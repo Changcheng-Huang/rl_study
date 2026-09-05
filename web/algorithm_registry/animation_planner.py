@@ -18,6 +18,7 @@ from .agent_spec import (
     AgentResponseError,
     _usage_values,
 )
+from .latex import double_q_learning_core_latex, normalize_latex, validate_latex
 
 
 ANIMATION_PLANNER_PROMPT_VERSION = "animation-planning-v2-english"
@@ -149,7 +150,9 @@ in warnings. Regardless of the language used by the source material or reviewer
 notes, write every generated human-readable field in English, including titles,
 narration, on-screen text, visual directions, metadata, and warnings. Algorithm
 names, mathematical symbols, and code identifiers may remain unchanged. Return
-only the requested structured object.
+only the requested structured object. Return formulas as raw LaTeX without
+`$` or `$$` delimiters. Use commands such as `\\arg\\max`, `\\gamma`,
+`\\alpha`, `\\cdot`, and `\\leftarrow`, never programming-style notation.
 """.strip()
 
 
@@ -264,7 +267,7 @@ def get_animation_planner_configuration(
 def _first_formula(algorithm_spec: Mapping[str, Any]) -> str:
     algorithm = algorithm_spec.get("algorithm", {})
     equations = algorithm.get("core_equations", [])
-    return str(equations[0]).strip() if equations else ""
+    return normalize_latex(str(equations[0]).strip()) if equations else ""
 
 
 def default_animation_options(
@@ -459,7 +462,11 @@ def default_animation_guidance(
     summary = str(algorithm_spec.get("summary", "")).strip()
     algorithm = algorithm_spec.get("algorithm", {})
     objective = str(algorithm.get("objective", summary)).strip() or summary
-    formula = _first_formula(algorithm_spec)
+    formula = (
+        double_q_learning_core_latex()
+        if algorithm_spec.get("id") == "double-q-learning"
+        else _first_formula(algorithm_spec)
+    )
     environments = [str(item) for item in algorithm.get("supported_environments", [])]
     environment_text = environments[0] if environments else "a small teaching example"
     scenes = [
@@ -681,6 +688,8 @@ def plan_animation_guidance(
             f"Animation Planning Agent response validation failed: {exc}"
         ) from exc
     guidance = output.model_dump()
+    if algorithm_spec.get("id") == "double-q-learning":
+        guidance["metadata"]["formula"] = double_q_learning_core_latex()
     guidance["warnings"] = list(
         dict.fromkeys(transport_warnings + guidance["warnings"])
     )
@@ -704,7 +713,14 @@ def plan_animation_guidance(
 
 
 def validate_animation_guidance(value: Mapping[str, Any]) -> dict[str, Any]:
-    return AnimationGuidanceOutput.model_validate(value).model_dump()
+    normalized = AnimationGuidanceOutput.model_validate(value).model_dump()
+    for scene in normalized["scenes"]:
+        scene["formulas"] = [validate_latex(item) for item in scene["formulas"]]
+    metadata = normalized["metadata"]
+    metadata["formula"] = validate_latex(metadata["formula"], allow_empty=True)
+    for step in metadata["derivation_steps"]:
+        step["latex"] = [validate_latex(item) for item in step["latex"]]
+    return normalized
 
 
 def _storyboard_markdown(guidance: Mapping[str, Any]) -> str:

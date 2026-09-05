@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+from functools import lru_cache
+from typing import Mapping
 
 from .models import (
     AlgorithmNotFoundError,
@@ -16,17 +19,9 @@ from .package import (
 from .runtime import DEFAULT_EXPERIMENT_TIMEOUT, load_isolated_spec
 
 
-def list_installed(
-    installed_root: str | Path | None = None,
-) -> tuple[InstalledAlgorithm, ...]:
-    root = (
-        Path(installed_root).resolve()
-        if installed_root is not None
-        else default_installed_root()
-    )
-    if not root.is_dir():
-        return ()
-
+@lru_cache(maxsize=16)
+def _list_installed_cached(root_text: str, fingerprint: tuple[tuple[str, int], ...]) -> tuple[InstalledAlgorithm, ...]:
+    root = Path(root_text)
     algorithms: list[InstalledAlgorithm] = []
     for path in sorted(root.iterdir()):
         if not path.is_dir() or path.name.startswith("."):
@@ -41,6 +36,24 @@ def list_installed(
                 )
             )
     return tuple(algorithms)
+
+
+def list_installed(
+    installed_root: str | Path | None = None,
+) -> tuple[InstalledAlgorithm, ...]:
+    root = (
+        Path(installed_root).resolve()
+        if installed_root is not None
+        else default_installed_root()
+    )
+    if not root.is_dir():
+        return ()
+    fingerprint = tuple(
+        (path.name, (path / "manifest.json").stat().st_mtime_ns)
+        for path in sorted(root.iterdir())
+        if path.is_dir() and not path.name.startswith(".") and (path / "manifest.json").is_file()
+    )
+    return _list_installed_cached(str(root), fingerprint)
 
 
 def _find_installed(
@@ -77,9 +90,33 @@ def load_experiment(
 ) -> LoadedExperiment:
     algorithm = _find_installed(algorithm_id, installed_root)
     _ensure_experiment_available(algorithm)
-    spec = load_isolated_spec(algorithm, timeout_seconds=timeout_seconds)
+    spec_file = algorithm.manifest.experiment.get("spec_file")
+    if isinstance(spec_file, str):
+        try:
+            spec = json.loads((algorithm.path / spec_file).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ExperimentUnavailableError(
+                f"experiment specification snapshot cannot be read: {exc}"
+            ) from exc
+    else:
+        module_path = algorithm.path / algorithm.manifest.experiment["module"]
+        cache_key = (
+            str(algorithm.path),
+            algorithm.manifest.algorithm_id,
+            module_path.stat().st_mtime_ns,
+            timeout_seconds,
+        )
+        cached = _LEGACY_SPEC_CACHE.get(cache_key)
+        if cached is None:
+            cached = load_isolated_spec(algorithm, timeout_seconds=timeout_seconds)
+            _LEGACY_SPEC_CACHE.clear()
+            _LEGACY_SPEC_CACHE[cache_key] = cached
+        spec = cached
     return LoadedExperiment(
         algorithm=algorithm,
         spec=spec,
         timeout_seconds=timeout_seconds,
     )
+
+
+_LEGACY_SPEC_CACHE: dict[tuple[object, ...], Mapping[str, object]] = {}

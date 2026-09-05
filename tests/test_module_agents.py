@@ -21,6 +21,7 @@ from web.algorithm_registry.module_agent import (
     NotebookCellOutput,
     NotebookModuleOutput,
     TheoryModuleOutput,
+    TheoryCheckpointOutput,
 )
 
 from test_algorithm_workflow_v2 import draft_input
@@ -118,6 +119,20 @@ class ModuleAgentTests(unittest.TestCase):
             response(
                 TheoryModuleOutput(
                     markdown="# Q-Learning\n\n" + ("Teaching content. " * 20),
+                    key_ideas=["Update action values", "Balance learning and exploration"],
+                    when_to_use=["Discrete control tasks"],
+                    concept_markdown="Q-Learning estimates action values from sampled transitions. " * 3,
+                    math_markdown="The temporal-difference target updates the selected action value. " * 2,
+                    pseudocode_markdown="Initialize values, sample a transition, update the table, and repeat. " * 2,
+                    checkpoint=[
+                        TheoryCheckpointOutput(
+                            question=f"Question {index}",
+                            options=["A", "B"],
+                            answer=0,
+                            explanation="A is correct for this fixture.",
+                        )
+                        for index in range(3)
+                    ],
                     warnings=[],
                 )
             )
@@ -136,14 +151,20 @@ class ModuleAgentTests(unittest.TestCase):
                 NotebookModuleOutput(
                     cells=[
                         NotebookCellOutput(
-                            cell_type="markdown", source="# Q-Learning"
+                            cell_type="markdown", source="# Q-Learning Overview"
                         ),
                         NotebookCellOutput(
-                            cell_type="code", source="alpha = 0.1\nalpha"
+                            cell_type="markdown", source="## Algorithm"
                         ),
                         NotebookCellOutput(
-                            cell_type="markdown", source="## Interpretation"
+                            cell_type="markdown", source="## Setup"
                         ),
+                        NotebookCellOutput(cell_type="markdown", source="## Implementation"),
+                        NotebookCellOutput(cell_type="markdown", source="## Training"),
+                        NotebookCellOutput(cell_type="markdown", source="## Visualization"),
+                        NotebookCellOutput(cell_type="markdown", source="## Exercises"),
+                        NotebookCellOutput(cell_type="markdown", source="## Summary"),
+                        NotebookCellOutput(cell_type="code", source="alpha = 0.1\nepisodes = 10\nvalues = [0.0] * 4"),
                     ],
                     warnings=[],
                 )
@@ -158,8 +179,13 @@ class ModuleAgentTests(unittest.TestCase):
         parsed_notebook = nbformat.reads(
             notebook.payload.decode("utf-8"), as_version=4
         )
-        self.assertEqual(len(parsed_notebook.cells), 3)
+        self.assertEqual(len(parsed_notebook.cells), 9)
         self.assertEqual(parsed_notebook.metadata["algorithm_id"], "q-learning")
+        self.assertEqual(
+            parsed_notebook.metadata["rlae_validation"],
+            "static-only-not-executed",
+        )
+        self.assertIn("theory.presentation.json", theory.additional_files)
 
         experiment_model = FakeChatModel(
             response(

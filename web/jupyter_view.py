@@ -2,19 +2,13 @@ import streamlit as st
 import os
 import nbformat
 from nbconvert import HTMLExporter
-import urllib.parse
 from algorithm_registry.integration import imported_algorithms
+from algorithm_registry.notebook_publisher import builtin_colab_url, publication_for
 
 def show_jupyter_module():
     # Header section
     st.subheader("Jupyter Notebooks")
     st.caption("View implementation details or run the code directly in the cloud.")
-
-    # --- Configuration ---
-    # Replace these with your actual GitHub repository details
-    GITHUB_USER = "sssonghuanan"
-    GITHUB_REPO = "animations"
-    GITHUB_BRANCH = "main"
 
     # Locate the notebook directory
     # Assumes structure: Animations-xxx/web/jupyter_view.py and Animations-xxx/notebook/
@@ -43,6 +37,9 @@ def show_jupyter_module():
             "path": str(algorithm.path / algorithm.manifest.notebook["file"]),
             "file_name": file_name,
             "builtin": False,
+            "algorithm_id": algorithm.manifest.algorithm_id,
+            "version": algorithm.manifest.version,
+            "validation": algorithm.manifest.notebook.get("validation"),
         }
     
     if not notebook_options:
@@ -76,9 +73,16 @@ def show_jupyter_module():
     with btn_col2:
         # Generate Colab URL
         if selected["builtin"]:
-            encoded_file = urllib.parse.quote(selected_file)
-            colab_url = f"https://colab.research.google.com/github/{GITHUB_USER}/{GITHUB_REPO}/blob/{GITHUB_BRANCH}/notebook/{encoded_file}"
+            colab_url = builtin_colab_url(selected_file)
+        else:
+            publication = publication_for(selected["algorithm_id"], selected["version"])
+            colab_url = (
+                publication.get("colab_url")
+                if publication and publication.get("status") == "published"
+                else None
+            )
 
+        if colab_url:
             # Optimization: Use Flexbox to force vertical alignment with Streamlit button height (38px)
             st.markdown(
                 f"""
@@ -93,10 +97,12 @@ def show_jupyter_module():
                 unsafe_allow_html=True
             )
         else:
-            st.caption("Download the imported notebook to run it locally or in Colab.")
+            st.caption("Colab link unavailable. Download the notebook or publish it from Package Manager.")
 
     # Status info
     st.info(f"Currently viewing: **{selected_file}**")
+    if not selected["builtin"] and selected.get("validation") == "static-only-not-executed":
+        st.warning("Structure-compatible notebook · static checks passed · cells were not executed by the platform.")
 
     # --- Notebook Rendering ---
     try:

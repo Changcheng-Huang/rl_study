@@ -4,6 +4,7 @@ from typing import Any
 
 from .models import InstalledAlgorithm
 from .registry import list_installed
+from .latex import normalize_latex
 
 
 def imported_algorithms() -> tuple[InstalledAlgorithm, ...]:
@@ -28,7 +29,7 @@ def imported_animation_data() -> dict[str, dict[str, Any]]:
                 animation.get("concept_markdown")
                 or algorithm.manifest.summary
             ),
-            "latex": animation.get("formula", ""),
+            "latex": normalize_latex(animation.get("formula", "")),
             "symbols": animation.get("symbols", []),
             "highlights": animation.get("highlights", []),
             "viewing_flow": animation.get("viewing_flow", []),

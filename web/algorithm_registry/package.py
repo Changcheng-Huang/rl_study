@@ -30,6 +30,10 @@ from .models import (
     ValidationReport,
 )
 from .experiment_design import validate_experiment_design
+from .latex import LatexValidationError, validate_latex
+from .notebook_tools import NOTEBOOK_DEPENDENCIES
+from .contracts import validate_experiment_spec
+from .theory_content import validate_theory_presentation
 
 
 SCHEMA_VERSION = 2
@@ -148,6 +152,13 @@ def _parse_modules(
         modules["theory"] = dict(theory)
         if theory_file is not None:
             modules["theory"]["file"] = theory_file
+        presentation_file = theory.get("presentation_file")
+        if presentation_file is not None:
+            safe_presentation = _safe_relative_path(
+                presentation_file, "modules.theory.presentation_file", issues
+            )
+            if safe_presentation is not None:
+                modules["theory"]["presentation_file"] = safe_presentation
 
     animation = modules.get("animation")
     if animation is not None:
@@ -171,6 +182,17 @@ def _parse_modules(
                         issues.error(
                             "invalid_animation",
                             f"animation.{field_name} must be a string",
+                        )
+                if isinstance(animation.get("formula"), str):
+                    try:
+                        animation["formula"] = validate_latex(
+                            animation["formula"], allow_empty=True
+                        )
+                        modules["animation"] = animation
+                    except LatexValidationError as exc:
+                        issues.error(
+                            "invalid_animation",
+                            f"animation.formula is invalid: {exc}",
                         )
                 for field_name in ("highlights", "viewing_flow"):
                     value = animation.get(field_name)
@@ -275,6 +297,43 @@ def _parse_modules(
                 notebook.get("file"), "modules.notebook.file", issues
             )
             notebook = dict(notebook)
+            requirements = notebook.get("requirements", [])
+            if not isinstance(requirements, list):
+                issues.error("invalid_notebook", "notebook.requirements must be a list")
+            else:
+                for index, requirement in enumerate(requirements):
+                    if not isinstance(requirement, Mapping):
+                        issues.error(
+                            "invalid_notebook",
+                            f"notebook requirement {index} must be an object",
+                        )
+                        continue
+                    if not isinstance(requirement.get("package"), str) or not isinstance(
+                        requirement.get("import"), str
+                    ):
+                        issues.error(
+                            "invalid_notebook",
+                            f"notebook requirement {index} needs package and import strings",
+                        )
+                        continue
+                    package = requirement["package"].strip()
+                    import_name = requirement["import"].strip()
+                    try:
+                        parsed_requirement = Requirement(package)
+                    except InvalidRequirement as exc:
+                        issues.error(
+                            "invalid_notebook",
+                            f"invalid notebook requirement '{package}': {exc}",
+                        )
+                        continue
+                    if (
+                        import_name not in NOTEBOOK_DEPENDENCIES
+                        or parsed_requirement.name.lower() != import_name.lower()
+                    ):
+                        issues.error(
+                            "invalid_notebook",
+                            f"notebook requirement {index} is outside the dependency allowlist",
+                        )
             if notebook_file is not None:
                 notebook["file"] = notebook_file
                 modules["notebook"] = notebook
@@ -324,6 +383,13 @@ def _parse_modules(
                             f"experiment requirement {index} needs an import name",
                         )
             experiment = dict(experiment)
+            spec_file = experiment.get("spec_file")
+            if spec_file is not None:
+                safe_spec = _safe_relative_path(
+                    spec_file, "modules.experiment.spec_file", issues
+                )
+                if safe_spec is not None:
+                    experiment["spec_file"] = safe_spec
             if experiment_module is not None:
                 experiment["module"] = experiment_module
                 modules["experiment"] = experiment
@@ -451,6 +517,15 @@ def _parse_manifest(
                     f"algorithm.{field_name}",
                     issues,
                 )
+            normalized_equations = []
+            for equation in raw_algorithm.get("core_equations", []):
+                try:
+                    normalized_equations.append(validate_latex(equation))
+                except LatexValidationError as exc:
+                    issues.error(
+                        "invalid_algorithm_spec",
+                        f"algorithm.core_equations contains invalid LaTeX: {exc}",
+                    )
             if not isinstance(raw_algorithm.get("hyperparameters"), Mapping):
                 issues.error(
                     "invalid_algorithm_spec",
@@ -463,6 +538,8 @@ def _parse_manifest(
                 except ValueError as exc:
                     issues.error("invalid_algorithm_spec", str(exc))
             algorithm = dict(raw_algorithm)
+            if normalized_equations:
+                algorithm["core_equations"] = normalized_equations
 
         raw_generation = raw.get("generation")
         if not isinstance(raw_generation, Mapping):
@@ -538,6 +615,10 @@ def _parse_manifest(
     ):
         return None
 
+    normalized_raw = dict(raw)
+    if schema_version == 2:
+        normalized_raw["algorithm"] = dict(algorithm)
+        normalized_raw["modules"] = dict(modules)
     return AlgorithmManifest(
         schema_version=schema_version,
         algorithm_id=algorithm_id,
@@ -554,7 +635,7 @@ def _parse_manifest(
         modules=modules,
         generation=generation,
         review=review,
-        raw=dict(raw),
+        raw=normalized_raw,
     )
 
 
@@ -617,6 +698,20 @@ def _check_declared_files(
             else:
                 if not theory_content.strip():
                     issues.error("invalid_theory", "theory file cannot be empty")
+    theory_declaration = manifest.modules.get("theory", {})
+    presentation_file = theory_declaration.get("presentation_file")
+    if isinstance(presentation_file, str):
+        presentation_path = _resolve_declared_file(
+            package_root, presentation_file, "theory presentation", issues
+        )
+        if presentation_path is not None:
+            try:
+                presentation = json.loads(presentation_path.read_text(encoding="utf-8"))
+                validate_theory_presentation(
+                    presentation, algorithm_name=manifest.name
+                )
+            except Exception as exc:
+                issues.error("invalid_theory", f"theory presentation is invalid: {exc}")
 
     if manifest.animation is not None:
         animation_path = _resolve_declared_file(
@@ -659,11 +754,21 @@ def _check_declared_files(
             if notebook_path.suffix.lower() != ".ipynb":
                 issues.error("invalid_notebook", "notebook file must use .ipynb")
             else:
+                notebook = None
                 try:
                     notebook = nbformat.read(notebook_path, as_version=4)
                     nbformat.validate(notebook)
                 except Exception as exc:
                     issues.error("invalid_notebook", f"notebook validation failed: {exc}")
+                if (
+                    notebook is not None
+                    and manifest.notebook.get("validation") == "static-only-not-executed"
+                ):
+                    if notebook.metadata.get("rlae_validation") != "static-only-not-executed":
+                        issues.error(
+                            "invalid_notebook",
+                            "notebook static validation marker is missing",
+                        )
 
     if manifest.experiment is not None:
         module_path = _resolve_declared_file(
@@ -674,6 +779,17 @@ def _check_declared_files(
                 issues.error("invalid_experiment", "experiment module must be a Python file")
             else:
                 _check_experiment_source(module_path, issues)
+        spec_file = manifest.experiment.get("spec_file")
+        if isinstance(spec_file, str):
+            spec_path = _resolve_declared_file(
+                package_root, spec_file, "experiment spec", issues
+            )
+            if spec_path is not None:
+                try:
+                    spec_value = json.loads(spec_path.read_text(encoding="utf-8"))
+                    validate_experiment_spec(spec_value)
+                except Exception as exc:
+                    issues.error("invalid_experiment", f"experiment spec is invalid: {exc}")
 
 
 def _check_experiment_source(module_path: Path, issues: _IssueCollector) -> None:

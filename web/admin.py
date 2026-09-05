@@ -6,6 +6,7 @@ from pathlib import Path
 
 import nbformat
 import streamlit as st
+from algorithm_registry.notebook_publisher import publication_for, publish_installed_notebook
 
 from algorithm_registry import (
     EXPERIMENT_DESIGN_PRESETS,
@@ -3270,6 +3271,35 @@ def _render_installed(reviewer: str) -> None:
                     for dependency in algorithm.dependencies:
                         if not dependency.available:
                             st.code(dependency.install_hint, language="bash")
+                if manifest.notebook is not None:
+                    publication = publication_for(
+                        manifest.algorithm_id, manifest.version
+                    )
+                    if publication and publication.get("status") == "published":
+                        st.success("Notebook published for Colab.")
+                        st.link_button(
+                            "Open in Colab",
+                            publication["colab_url"],
+                            use_container_width=True,
+                        )
+                    else:
+                        message = (
+                            publication.get("message")
+                            if publication
+                            else "Notebook has not been published to GitHub."
+                        )
+                        st.caption(message)
+                        if st.button(
+                            "Retry Notebook Publish",
+                            key=f"publish_notebook_{manifest.algorithm_id}",
+                            disabled=not reviewer.strip(),
+                            use_container_width=True,
+                        ):
+                            result = publish_installed_notebook(algorithm)
+                            st.session_state["algorithm_admin_message"] = result.get(
+                                "message", "Notebook publication updated."
+                            )
+                            st.rerun()
             with right:
                 confirm = st.checkbox(
                     "Confirm removal",

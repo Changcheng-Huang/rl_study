@@ -38,6 +38,34 @@ The ZIP may contain these files directly or wrap them in one top-level folder.
 Schema v2 uses `manifest.json` as the single source of truth. Theory, Notebook,
 and Experiment are required by the v2 MVP; Animation remains optional.
 
+Newly generated packages may add two backward-compatible presentation files:
+
+```json
+{
+  "modules": {
+    "theory": {
+      "file": "theory.md",
+      "presentation_file": "theory.presentation.json"
+    },
+    "notebook": {
+      "file": "notebook.ipynb",
+      "requirements": [{"package": "numpy>=2.2", "import": "numpy"}],
+      "validation": "static-only-not-executed"
+    },
+    "experiment": {
+      "module": "experiment.py",
+      "requirements": [],
+      "spec_file": "experiment_spec.json"
+    }
+  }
+}
+```
+
+The Theory sidecar drives the shared Concept, Math, Pseudocode, and Checkpoint
+tabs. `experiment_spec.json` is produced by an isolated `get_spec()` call during
+publication so opening the installed lab never executes package code. Legacy v2
+packages without either sidecar remain supported.
+
 ```json
 {
   "schema_version": 2,
